@@ -20,6 +20,8 @@
 - [x] 支持切换字体和字体大小
 - [x] 支持使用Bing每日图片作为视频背景
 - [x] 相同频道自动合并，自动分组
+- [x] 支持数字换台
+- [x] 支持上下键换台(需要在'设置->实现设置->上下键切换频道'中手动打开)
 
 ### TV版交互
 
@@ -35,7 +37,6 @@
 
 
 #### [查看国外Github已发布的版本](https://github.com/aiyakuaile/easy_tv_live/releases)
-#### [查看国内Gitee已发布的版本](https://gitee.com/AMuMuSir/easy_tv_live/releases)
 
 > ios 支持15.5.0+以上版本，下载ipa后需要自行签名安装，例如：爱思助手,轻松签,巨魔等
 

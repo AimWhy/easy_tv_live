@@ -1,15 +1,20 @@
+import 'dart:io';
+
+import 'package:easy_tv_live/provider/download_provider.dart';
+import 'package:easy_tv_live/provider/theme_provider.dart';
 import 'package:easy_tv_live/util/latency_checker_util.dart';
 import 'package:easy_tv_live/widget/focus_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:provider/provider.dart';
 import 'package:responsive_builder/responsive_builder.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'channel_drawer_page.dart';
-import 'entity/playlist_model.dart';
+import 'entity/play_channel_list_model.dart';
 import 'generated/l10n.dart';
 import 'mobile_video_widget.dart';
 import 'table_video_widget.dart';
@@ -31,9 +36,9 @@ class LiveHomePage extends StatefulWidget {
 class _LiveHomePageState extends State<LiveHomePage> {
   String toastString = S.current.loading;
 
-  PlaylistModel? _videoMap;
+  PlayChannelListModel? _channelListModel;
 
-  PlayModel? _currentChannel;
+  Channel? _currentChannel;
 
   int _sourceIndex = 0;
 
@@ -46,30 +51,43 @@ class _LiveHomePageState extends State<LiveHomePage> {
 
   bool _drawerIsOpen = false;
 
+  int _channelSerialNum = 1;
+
   _playVideo() async {
     if (_currentChannel == null) return;
+    _channelSerialNum = _currentChannel!.serialNum ?? 1;
+    if (mounted) {
+      context.read<ThemeProvider>().setPrePlaySerialNum(_channelSerialNum);
+    }
     toastString = S.current.lineToast(_sourceIndex + 1, _currentChannel!.title ?? '');
     setState(() {});
     final url = _currentChannel!.urls![_sourceIndex].toString();
     LogUtil.v('正在播放:$_sourceIndex::${_currentChannel!.toJson()}');
     try {
-      _playerController?.removeListener(_videoListener);
-      _playerController?.dispose();
-      _playerController = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        videoPlayerOptions: VideoPlayerOptions(
-          allowBackgroundPlayback: false,
-          mixWithOthers: false,
-          webOptions: const VideoPlayerWebOptions(controls: VideoPlayerWebOptionsControls.enabled()),
-        ),
-      )..setVolume(1.0);
-      await _playerController!.initialize();
-      // debugPrint('MediaInfo::::::${_playerController!.getMediaInfo().toString()}');
-      _playerController!.addListener(_videoListener);
-      _playerController!.play();
-      setState(() {
-        toastString = S.current.loading;
-        aspectRatio = _playerController?.value.aspectRatio ?? 1.78;
+      if (_playerController != null) {
+        _playerController?.removeListener(_videoListener);
+        await _playerController?.pause();
+        await _playerController?.dispose();
+        _playerController = null;
+        setState(() {});
+      }
+      Future.delayed(Duration.zero, () async {
+        _playerController = VideoPlayerController.networkUrl(
+          Uri.parse(url),
+          videoPlayerOptions: VideoPlayerOptions(
+            allowBackgroundPlayback: false,
+            mixWithOthers: false,
+            webOptions: const VideoPlayerWebOptions(controls: VideoPlayerWebOptionsControls.enabled()),
+          ),
+        )..setVolume(1.0);
+        await _playerController!.initialize();
+        // debugPrint('MediaInfo::::::${_playerController!.getMediaInfo().toString()}');
+        _playerController!.addListener(_videoListener);
+        _playerController!.play();
+        setState(() {
+          toastString = S.current.loading;
+          aspectRatio = _playerController?.value.aspectRatio ?? 1.78;
+        });
       });
     } catch (e) {
       LogUtil.v('播放出错:::::$e');
@@ -91,6 +109,7 @@ class _LiveHomePageState extends State<LiveHomePage> {
 
   _videoListener() {
     if (_playerController == null) return;
+    // LogUtil.v('播放状态:::::${_playerController!.value.toString()}');
     if (_playerController!.value.hasError) {
       _sourceIndex += 1;
       if (_sourceIndex > _currentChannel!.urls!.length - 1) {
@@ -119,10 +138,14 @@ class _LiveHomePageState extends State<LiveHomePage> {
     }
   }
 
-  _onTapChannel(PlayModel? model) {
+  _onTapChannel(Channel? model) {
     _currentChannel = model;
     _sourceIndex = 0;
-    LogUtil.v('onTapChannel:::::${_currentChannel?.toJson()}');
+    if (_channelListModel != null && model != null) {
+      _channelListModel!.playGroupIndex = model.groupIndex;
+      _channelListModel!.playChannelIndex = model.channelIndex;
+    }
+    LogUtil.v('切换频道:::::${_currentChannel?.toJson()}');
     _playVideo();
   }
 
@@ -140,7 +163,21 @@ class _LiveHomePageState extends State<LiveHomePage> {
 
   _loadData() async {
     await _parseData();
-    CheckVersionUtil.checkVersion(context, false, false);
+    if (mounted) {
+      if (context.read<ThemeProvider>().useAutoUpdate && Platform.isAndroid) {
+        final url = await CheckVersionUtil.checkVersionAndAutoUpdate();
+        if (mounted && url != null) {
+          EasyLoading.showToast('新版本开始下载，稍后为您自动安装', toastPosition: EasyLoadingToastPosition.top);
+          context.read<DownloadProvider>().downloadApk(url);
+        }
+      } else {
+        if (context.read<ThemeProvider>().useLightVersionCheck) {
+          CheckVersionUtil.checkLightVersion();
+        } else {
+          CheckVersionUtil.checkVersion(context, false, false);
+        }
+      }
+    }
   }
 
   @override
@@ -153,21 +190,19 @@ class _LiveHomePageState extends State<LiveHomePage> {
 
   _parseData() async {
     final resMap = await M3uUtil.getDefaultM3uData();
-    LogUtil.v('_parseData:::::$resMap');
-    _videoMap = resMap;
+    _channelListModel = resMap;
     _sourceIndex = 0;
-    if (_videoMap?.playList?.isNotEmpty ?? false) {
-      setState(() {
-        String group = _videoMap!.playList!.keys.first.toString();
-        String channel = _videoMap!.playList![group]!.keys.first;
-        _currentChannel = _videoMap!.playList![group]![channel];
-        _playVideo();
-      });
-      if (_videoMap!.playListType == PlayListType.m3u) {
-        if (_videoMap?.epgUrl != null && _videoMap?.epgUrl != '') {
-          EpgUtil.loadEPGXML(_videoMap!.epgUrl!);
-        } else {
-          EpgUtil.loadEPGXML('http://epg.51zmt.top:8000/cc.xml');
+    if ((_channelListModel?.playList?.isNotEmpty) ?? false) {
+      if (mounted) {
+        final preNum = context.read<ThemeProvider>().prePlaySerialNum;
+        final channel = M3uUtil.serialNumMap[preNum.toString()];
+        _onTapChannel(channel ?? M3uUtil.serialNumMap['1']);
+        if (_channelListModel!.type == PlayListType.m3u) {
+          if (_channelListModel?.epgUrl != null && _channelListModel?.epgUrl != '') {
+            EpgUtil.loadEPGXML(_channelListModel!.epgUrl!);
+          } else {
+            EpgUtil.loadEPGXML('http://epg.51zmt.top:8000/cc.xml');
+          }
         }
       }
     } else {
@@ -184,8 +219,8 @@ class _LiveHomePageState extends State<LiveHomePage> {
   Widget build(BuildContext context) {
     if (EnvUtil.isTV()) {
       return TvPage(
-        videoMap: _videoMap,
-        playModel: _currentChannel,
+        channelSerialNum: _channelSerialNum,
+        channelListModel: _channelListModel,
         onTapChannel: _onTapChannel,
         toastString: toastString,
         controller: _playerController,
@@ -210,8 +245,7 @@ class _LiveHomePageState extends State<LiveHomePage> {
             aspectRatio: aspectRatio,
             onChangeSubSource: _parseData,
             drawChild: ChannelDrawerPage(
-              videoMap: _videoMap,
-              playModel: _currentChannel,
+              channelListModel: _channelListModel,
               onTapChannel: _onTapChannel,
               isLandscape: false,
             ),
@@ -228,7 +262,7 @@ class _LiveHomePageState extends State<LiveHomePage> {
               }
             },
             child: Scaffold(
-              drawer: ChannelDrawerPage(videoMap: _videoMap, playModel: _currentChannel, onTapChannel: _onTapChannel, isLandscape: true),
+              drawer: ChannelDrawerPage(channelListModel: _channelListModel, onTapChannel: _onTapChannel, isLandscape: true),
               drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.3,
               drawerScrimColor: Colors.transparent,
               onDrawerChanged: (bool isOpened) {
@@ -272,8 +306,9 @@ class _LiveHomePageState extends State<LiveHomePage> {
     );
   }
 
-  Future<void> _changeChannelSources() async {
-    List<String> sources = _videoMap!.playList![_currentChannel!.group]![_currentChannel!.title]!.urls!;
+  Future<void> _changeChannelSources([FocusNode? videoNode]) async {
+    videoNode?.unfocus();
+    List<String> sources = _currentChannel!.urls!;
     final selectedIndex = await showModalBottomSheet(
         context: context,
         useRootNavigator: true,
@@ -325,6 +360,7 @@ class _LiveHomePageState extends State<LiveHomePage> {
             ),
           );
         });
+    videoNode?.requestFocus();
     if (selectedIndex != null && _sourceIndex != selectedIndex) {
       _sourceIndex = selectedIndex;
       LogUtil.v('切换线路:====线路${_sourceIndex + 1}');

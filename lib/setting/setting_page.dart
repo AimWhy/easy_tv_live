@@ -1,8 +1,10 @@
 import 'package:easy_tv_live/router_keys.dart';
 import 'package:easy_tv_live/util/check_version_util.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../generated/l10n.dart';
+import '../provider/theme_provider.dart';
 
 class SettingPage extends StatefulWidget {
   const SettingPage({super.key});
@@ -113,12 +115,37 @@ class _SettingPageState extends State<SettingPage> {
               Navigator.pushNamed(context, RouterKeys.settingFont);
             },
           ),
-          ListTile(
-            title: const Text('美化'),
-            leading: const Icon(Icons.ac_unit),
-            trailing: const Icon(Icons.arrow_right),
-            onTap: () {
-              Navigator.pushNamed(context, RouterKeys.settingBeautify);
+          SwitchListTile(
+            autofocus: true,
+            title: const Text('背景美化'),
+            value: context.watch<ThemeProvider>().isBingBg,
+            subtitle: const Text('未播放时的屏幕背景,每日更换图片'),
+            onChanged: (value) {
+              context.read<ThemeProvider>().setBingBg(value);
+            },
+          ),
+          SwitchListTile(
+            title: const Text('更新提示免打扰'),
+            value: context.watch<ThemeProvider>().useLightVersionCheck,
+            subtitle: const Text('开启后,播放页面的更新弹窗将会变成普通的消息提醒'),
+            onChanged: (value) {
+              context.read<ThemeProvider>().setLightVersionCheck(value);
+            },
+          ),
+          SwitchListTile(
+            title: const Text('自动更新'),
+            value: context.watch<ThemeProvider>().useAutoUpdate,
+            subtitle: const Text('发现新版本将会自动下载并安装'),
+            onChanged: (value) {
+              context.read<ThemeProvider>().setAutoUpdate(value);
+            },
+          ),
+          SwitchListTile(
+            title: const Text('数据代理'),
+            value: context.watch<ThemeProvider>().useDataProxy,
+            subtitle: const Text('Github访问受限的用户需开启'),
+            onChanged: (value) {
+              context.read<ThemeProvider>().setDataProxy(value);
             },
           ),
         ],

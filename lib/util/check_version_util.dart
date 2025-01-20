@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:easy_tv_live/widget/update_download_btn.dart';
@@ -11,36 +12,53 @@ import 'http_util.dart';
 import 'log_util.dart';
 
 class CheckVersionUtil {
-  static const version = '2.8.2';
-  static final versionHost = EnvUtil.checkVersionHost();
-  static final downloadLink = EnvUtil.sourceDownloadHost();
+  static const version = '2.9.0';
   static final releaseLink = EnvUtil.sourceReleaseHost();
   static final homeLink = EnvUtil.sourceHomeHost();
   static VersionEntity? latestVersionEntity;
+  static bool isTV = EnvUtil.isTV();
+
+  static Future<String?> checkVersionAndAutoUpdate() async {
+    final latestVersionEntity = await checkRelease(false, false);
+    if (latestVersionEntity != null) {
+      final url =
+          '${EnvUtil.sourceDownloadHost()}/${latestVersionEntity!.latestVersion}/easyTV-${latestVersionEntity!.latestVersion}${isTV ? '-tv' : ''}.apk';
+      return url;
+    }
+    return null;
+  }
+
+  static checkLightVersion() async {
+    final latestVersionEntity = await checkRelease(false, false);
+    if (latestVersionEntity != null) {
+      EasyLoading.showToast('发现新版本，请及时更新哦！', toastPosition: EasyLoadingToastPosition.top);
+    }
+  }
 
   static Future<VersionEntity?> checkRelease([bool isShowLoading = true, isShowLatestToast = true]) async {
     if (latestVersionEntity != null) return latestVersionEntity;
     try {
-      final res = await HttpUtil().getRequest(versionHost, isShowLoading: isShowLoading);
+      final res = await HttpUtil().getRequest(EnvUtil.checkVersionHost(), isShowLoading: isShowLoading);
       if (res != null) {
-        final latestVersion = res['tag_name'] as String?;
-        final latestMsg = res['body'] as String?;
+        final resMap = json.decode(res);
+        final latestVersion = resMap['latest_version'] as String?;
+        final latestMsg = (resMap['update_log'] as List?)?.join('\n');
         if (latestVersion != null && latestVersion.compareTo(version) > 0) {
           latestVersionEntity = VersionEntity(latestVersion: latestVersion, latestMsg: latestMsg);
           return latestVersionEntity;
         } else {
-          if (isShowLatestToast) EasyLoading.showToast(S.current.latestVersion);
+          if (isShowLatestToast) EasyLoading.showToast(S.current.latestVersion, toastPosition: EasyLoadingToastPosition.top);
           LogUtil.v('已是最新版::::::::');
         }
       }
       return null;
     } catch (e) {
+      LogUtil.e('检查更新错误:::::$e');
       return null;
     }
   }
 
   static Future<bool?> showUpdateDialog(BuildContext context) async {
-    bool isTV = EnvUtil.isTV();
     return showDialog<bool>(
         context: context,
         barrierDismissible: false,
@@ -96,7 +114,8 @@ class CheckVersionUtil {
                     ),
                   ),
                   UpdateDownloadBtn(
-                      apkUrl: '$downloadLink/${latestVersionEntity!.latestVersion}/easyTV-${latestVersionEntity!.latestVersion}${isTV ? '-tv' : ''}'
+                      apkUrl:
+                          '${EnvUtil.sourceDownloadHost()}/${latestVersionEntity!.latestVersion}/easyTV-${latestVersionEntity!.latestVersion}${isTV ? '-tv' : ''}'
                           '.apk'),
                   const SizedBox(height: 30),
                 ],
